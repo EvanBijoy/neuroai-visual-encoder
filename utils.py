@@ -66,7 +66,11 @@ def get_roi_vertices(roi_masks, fmri_data, n_vertices=10):
     roi_data = {}
     mapping = roi_masks['mapping']
     
-    for roi_name, roi_idx in mapping.items():
+    # Mapping is {idx: name}, iterate correctly
+    for roi_idx, roi_name in mapping.items():
+        if roi_name == 'Unknown' or roi_idx == 0:
+            continue  # Skip unknown/background
+            
         lh_vertices = np.where(roi_masks['lh'] == roi_idx)[0]
         rh_vertices = np.where(roi_masks['rh'] == roi_idx)[0]
         
@@ -75,6 +79,7 @@ def get_roi_vertices(roi_masks, fmri_data, n_vertices=10):
         selected_lh = []
         selected_rh = []
         
+        # Try to get vertices from LH first, then RH
         if len(lh_vertices) >= n_vertices:
             selected_lh = np.random.choice(lh_vertices, n_vertices, replace=False)
         elif len(lh_vertices) > 0:
@@ -82,6 +87,13 @@ def get_roi_vertices(roi_masks, fmri_data, n_vertices=10):
             remaining = n_vertices - len(lh_vertices)
             if len(rh_vertices) >= remaining:
                 selected_rh = np.random.choice(rh_vertices, remaining, replace=False)
+            elif len(rh_vertices) > 0:
+                selected_rh = rh_vertices
+        elif len(rh_vertices) >= n_vertices:
+            # No LH vertices, use RH only
+            selected_rh = np.random.choice(rh_vertices, n_vertices, replace=False)
+        elif len(rh_vertices) > 0:
+            selected_rh = rh_vertices
         
         train_responses = []
         test_responses = []
