@@ -49,20 +49,43 @@ def load_fmri_data(paths):
             'lh_test': lh_test, 'rh_test': rh_test}
 
 
-def load_roi_masks(paths):
-    """Load ROI masks for place-selective regions (floc-places)."""
-    lh_roi = np.load(os.path.join(paths['roi'], 'lh.floc-places_challenge_space.npy'))
-    rh_roi = np.load(os.path.join(paths['roi'], 'rh.floc-places_challenge_space.npy'))
-    roi_mapping = np.load(os.path.join(paths['roi'], 'mapping_floc-places.npy'), allow_pickle=True).item()
+def load_roi_masks(paths, roi_type='floc-places'):
+    """
+    Load ROI masks for specified region type.
     
-    print(f"ROI masks - LH: {lh_roi.shape}, RH: {rh_roi.shape}")
+    Args:
+        paths: dict from get_paths()
+        roi_type: 'floc-places' (place-selective: OPA, PPA, RSC) or 
+                  'prf-visualrois' (early retinotopic: V1v, V1d, V2v, V2d, V3v, V3d, hV4)
+    """
+    lh_roi = np.load(os.path.join(paths['roi'], f'lh.{roi_type}_challenge_space.npy'))
+    rh_roi = np.load(os.path.join(paths['roi'], f'rh.{roi_type}_challenge_space.npy'))
+    roi_mapping = np.load(os.path.join(paths['roi'], f'mapping_{roi_type}.npy'), allow_pickle=True).item()
+    
+    print(f"\n{roi_type} ROI masks - LH: {lh_roi.shape}, RH: {rh_roi.shape}")
     print(f"ROI mapping: {roi_mapping}")
     
-    return {'lh': lh_roi, 'rh': rh_roi, 'mapping': roi_mapping}
+    return {'lh': lh_roi, 'rh': rh_roi, 'mapping': roi_mapping, 'type': roi_type}
 
 
-def get_roi_vertices(roi_masks, fmri_data, n_vertices=10):
-    """Select random vertices for each ROI (OPA, PPA, RSC)."""
+def load_multiple_roi_masks(paths, roi_types=['floc-places', 'prf-visualrois']):
+    """Load multiple ROI types and return combined dict."""
+    all_masks = {}
+    for roi_type in roi_types:
+        all_masks[roi_type] = load_roi_masks(paths, roi_type)
+    return all_masks
+
+
+def get_roi_vertices(roi_masks, fmri_data, n_vertices=10, prefix=''):
+    """
+    Select random vertices for each ROI in the mask.
+    
+    Args:
+        roi_masks: dict with 'lh', 'rh', 'mapping' keys
+        fmri_data: dict with fMRI data
+        n_vertices: number of vertices per ROI
+        prefix: optional prefix for ROI names (e.g., 'places_' or 'visual_')
+    """
     roi_data = {}
     mapping = roi_masks['mapping']
     
@@ -70,11 +93,14 @@ def get_roi_vertices(roi_masks, fmri_data, n_vertices=10):
     for roi_idx, roi_name in mapping.items():
         if roi_name == 'Unknown' or roi_idx == 0:
             continue  # Skip unknown/background
+        
+        # Add prefix to distinguish ROI types if needed
+        display_name = f"{prefix}{roi_name}" if prefix else roi_name
             
         lh_vertices = np.where(roi_masks['lh'] == roi_idx)[0]
         rh_vertices = np.where(roi_masks['rh'] == roi_idx)[0]
         
-        print(f"\n{roi_name}: LH has {len(lh_vertices)} vertices, RH has {len(rh_vertices)} vertices")
+        print(f"\n{display_name}: LH has {len(lh_vertices)} vertices, RH has {len(rh_vertices)} vertices")
         
         selected_lh = []
         selected_rh = []
@@ -106,15 +132,45 @@ def get_roi_vertices(roi_masks, fmri_data, n_vertices=10):
             test_responses.append(fmri_data['rh_test'][:, selected_rh])
         
         if train_responses:
-            roi_data[roi_name] = {
+            roi_data[display_name] = {
                 'train': np.concatenate(train_responses, axis=1) if len(train_responses) > 1 else train_responses[0],
                 'test': np.concatenate(test_responses, axis=1) if len(test_responses) > 1 else test_responses[0],
                 'lh_idx': selected_lh,
-                'rh_idx': selected_rh
+                'rh_idx': selected_rh,
+                'type': roi_masks.get('type', 'unknown')
             }
             print(f"  Selected {len(selected_lh)} LH + {len(selected_rh)} RH vertices")
     
     return roi_data
+
+
+def get_all_roi_vertices(all_roi_masks, fmri_data, n_vertices=10):
+    """
+    Get vertices from multiple ROI types.
+    
+    Args:
+        all_roi_masks: dict from load_multiple_roi_masks()
+        fmri_data: dict with fMRI data
+        n_vertices: number of vertices per ROI
+    
+    Returns:
+        Combined dict with all ROIs (prefixed by type)
+    """
+    all_roi_data = {}
+    
+    for roi_type, masks in all_roi_masks.items():
+        # Use short prefix to distinguish ROI types
+        if roi_type == 'floc-places':
+            prefix = ''  # No prefix for assigned ROI
+        elif roi_type == 'prf-visualrois':
+            prefix = ''  # No prefix, names are already unique
+        else:
+            prefix = f"{roi_type.split('-')[0]}_"
+        
+        roi_data = get_roi_vertices(masks, fmri_data, n_vertices, prefix)
+        all_roi_data.update(roi_data)
+    
+    return all_roi_data
 
 
 def get_image_paths(img_dir):
